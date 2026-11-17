@@ -14,14 +14,16 @@ const restartButton = document.querySelector("#restart-button");
 const gyroButton = document.querySelector("#gyro-button");
 const recenterButton = document.querySelector("#recenter-button");
 const fireButton = document.querySelector("#fire-button");
+const aimZoom = document.querySelector("#aim-zoom");
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#9cc9ce");
 scene.fog = new THREE.Fog("#9cc9ce", 20, 62);
 
 const camera = new THREE.PerspectiveCamera(67, 1, 0.1, 100);
-camera.position.set(0, 1.65, 8);
+camera.position.set(0, 21.65, 8);
 camera.rotation.order = "YXZ";
+const zoomCamera = new THREE.PerspectiveCamera(24, 1, 0.1, 100);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -38,7 +40,8 @@ const enemies = [];
 const arrows = [];
 const particles = [];
 const decorations = [];
-const aim = { yaw: 0, pitch: -0.035, targetYaw: 0, targetPitch: -0.035 };
+const startingPitch = -0.65;
+const aim = { yaw: 0, pitch: startingPitch, targetYaw: 0, targetPitch: startingPitch };
 const maxGateHealth = 8;
 const insectColors = ["#6eaa54", "#c94e45", "#d5a333", "#a83b36"];
 const shared = {
@@ -432,7 +435,7 @@ function spawnChild(parent, offset = 0) {
     maxHp: 1,
     age: 0,
     facingLeft: false,
-    speed: 1.25 + Math.random() * 0.35,
+    speed: (1.25 + Math.random() * 0.35) * 0.3,
     baseX: group.position.x,
     seed: Math.random() * Math.PI * 2 + offset,
     falling: flying,
@@ -462,15 +465,17 @@ function startGame() {
   fireCooldown = 0;
   aim.yaw = 0;
   aim.targetYaw = 0;
-  aim.pitch = -0.035;
-  aim.targetPitch = -0.035;
+  aim.pitch = startingPitch;
+  aim.targetPitch = startingPitch;
   gameState = "playing";
   overlay.classList.add("hidden");
   gameOverOverlay.classList.add("hidden");
   statusLabel.textContent = "PHÒNG THỦ";
   updateHud();
-  spawnMother(0, -3.4, -5.8);
-  spawnMother(2, 3.4, -6.8);
+  const flyingMother = spawnMother(0, -3.4, -5.8);
+  const crawlingMother = spawnMother(2, 3.4, -6.8);
+  spawnChildren(flyingMother, 2);
+  spawnChildren(crawlingMother, 2);
   unlockAudio();
 }
 
@@ -815,7 +820,35 @@ function animate() {
   } else {
     updateParticles(delta);
   }
+  renderScene();
+}
+
+function renderScene() {
+  const width = viewport.clientWidth;
+  const height = viewport.clientHeight;
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, width, height);
   renderer.render(scene, camera);
+
+  const zoomBounds = aimZoom.getBoundingClientRect();
+  const viewportBounds = viewport.getBoundingClientRect();
+  const inset = 2;
+  const zoomWidth = Math.max(1, zoomBounds.width - inset * 2);
+  const zoomHeight = Math.max(1, zoomBounds.height - inset * 2);
+  const zoomLeft = zoomBounds.left - viewportBounds.left + inset;
+  const zoomBottom = viewportBounds.bottom - zoomBounds.bottom + inset;
+
+  zoomCamera.aspect = zoomWidth / zoomHeight;
+  zoomCamera.position.copy(camera.position);
+  zoomCamera.quaternion.copy(camera.quaternion);
+  zoomCamera.updateProjectionMatrix();
+
+  renderer.setViewport(zoomLeft, zoomBottom, zoomWidth, zoomHeight);
+  renderer.setScissor(zoomLeft, zoomBottom, zoomWidth, zoomHeight);
+  renderer.setScissorTest(true);
+  renderer.render(scene, zoomCamera);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, width, height);
 }
 
 function resize() {
@@ -855,9 +888,9 @@ function onDeviceOrientation(event) {
     gyroOrigin = { alpha: event.alpha, beta: event.beta, yaw: aim.targetYaw, pitch: aim.targetPitch };
     return;
   }
-  aim.targetYaw = gyroOrigin.yaw - (angleDifference(event.alpha, gyroOrigin.alpha) * Math.PI) / 180;
+  aim.targetYaw = gyroOrigin.yaw + (angleDifference(event.alpha, gyroOrigin.alpha) * Math.PI) / 180;
   aim.targetPitch = THREE.MathUtils.clamp(
-    gyroOrigin.pitch - ((event.beta - gyroOrigin.beta) * Math.PI) / 180,
+    gyroOrigin.pitch + ((event.beta - gyroOrigin.beta) * Math.PI) / 180,
     -0.82,
     0.65,
   );
