@@ -21,18 +21,16 @@ scene.background = new THREE.Color("#9cc9ce");
 scene.fog = new THREE.Fog("#9cc9ce", 20, 62);
 
 const camera = new THREE.PerspectiveCamera(67, 1, 0.1, 100);
-camera.position.set(0, 21.65, 8);
+camera.position.set(0, 5.5, -22);
 camera.rotation.order = "YXZ";
 const zoomCamera = new THREE.PerspectiveCamera(24, 1, 0.1, 100);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 viewport.appendChild(renderer.domElement);
 
 const clock = new THREE.Clock();
@@ -40,8 +38,15 @@ const enemies = [];
 const arrows = [];
 const particles = [];
 const decorations = [];
-const startingPitch = -0.65;
-const aim = { yaw: 0, pitch: startingPitch, targetYaw: 0, targetPitch: startingPitch };
+const startingYaw = Math.PI;
+const startingPitch = -0.28;
+const maxActiveEnemies = 4;
+const aim = {
+  yaw: startingYaw,
+  pitch: startingPitch,
+  targetYaw: startingYaw,
+  targetPitch: startingPitch,
+};
 const maxGateHealth = 8;
 const insectColors = ["#6eaa54", "#c94e45", "#d5a333", "#a83b36"];
 const shared = {
@@ -357,7 +362,7 @@ function applySprite(enemy) {
       depthWrite: false,
     }),
   );
-  sprite.scale.set(0.95, 0.95, 1);
+  sprite.scale.set(1.35, 1.35, 1);
   sprite.position.y = 0.42;
   enemy.group.add(sprite);
   enemy.visual.visible = false;
@@ -397,10 +402,7 @@ function spawnMother(type, x, z) {
     facingLeft: false,
     speed: flying ? 0 : 0.42,
     baseX: x,
-    phase: 0,
     childrenAlive: 0,
-    childKills: 0,
-    spawnCooldown: 2.1,
   };
   enemies.push(enemy);
   applySprite(enemy);
@@ -414,7 +416,7 @@ function spawnChild(parent, offset = 0) {
   const group = new THREE.Group();
   const visual = createInsectFallback(type, false, false);
   group.add(visual);
-  group.scale.setScalar(0.28);
+  group.scale.setScalar(0.6);
   const startY = flying ? parent.group.position.y : 0.13;
   group.position.set(
     THREE.MathUtils.clamp(parent.group.position.x + offset, -6.4, 6.4),
@@ -448,11 +450,8 @@ function spawnChild(parent, offset = 0) {
   applySprite(child);
 }
 
-function spawnChildren(parent, count) {
-  parent.phase += 1;
-  parent.childKills = 0;
-  const offsets = count === 2 ? [-0.38, 0.38] : [-0.72, 0, 0.72];
-  for (const offset of offsets) spawnChild(parent, offset);
+function spawnChildFor(parent) {
+  spawnChild(parent, parent.baseX < 0 ? 0.95 : -0.95);
 }
 
 function startGame() {
@@ -463,8 +462,8 @@ function startGame() {
   wave = 1;
   spawnTimer = 13;
   fireCooldown = 0;
-  aim.yaw = 0;
-  aim.targetYaw = 0;
+  aim.yaw = startingYaw;
+  aim.targetYaw = startingYaw;
   aim.pitch = startingPitch;
   aim.targetPitch = startingPitch;
   gameState = "playing";
@@ -474,8 +473,8 @@ function startGame() {
   updateHud();
   const flyingMother = spawnMother(0, -3.4, -5.8);
   const crawlingMother = spawnMother(2, 3.4, -6.8);
-  spawnChildren(flyingMother, 2);
-  spawnChildren(crawlingMother, 2);
+  spawnChildFor(flyingMother);
+  spawnChildFor(crawlingMother);
   unlockAudio();
 }
 
@@ -642,10 +641,7 @@ function removeEnemy(enemy) {
   scene.remove(enemy.group);
   if (!enemy.isMother && enemy.parent?.alive) {
     enemy.parent.childrenAlive = Math.max(0, enemy.parent.childrenAlive - 1);
-    enemy.parent.childKills += 1;
-    if (enemy.parent.phase === 1 && enemy.parent.childKills >= 2 && enemy.parent.childrenAlive === 0) {
-      spawnChildren(enemy.parent, 3);
-    }
+    if (enemy.parent.childrenAlive === 0) spawnChildFor(enemy.parent);
   }
 }
 
@@ -730,10 +726,6 @@ function updateEnemies(delta, elapsed) {
         enemy.group.position.x = enemy.baseX + Math.sin(enemy.age * 0.9) * 0.32;
         setSpriteFacing(enemy, Math.cos(enemy.age * 0.9) < 0);
       }
-      enemy.spawnCooldown -= delta;
-      if (enemy.spawnCooldown <= 0 && enemy.phase === 0) {
-        spawnChildren(enemy, 2);
-      }
       const wings = enemy.visual.userData.wings ?? [];
       wings.forEach((wing, index) => {
         wing.rotation.z = Math.sin(elapsed * 18 + index * Math.PI) * 0.62;
@@ -770,9 +762,11 @@ function updateEnemies(delta, elapsed) {
   }
   spawnTimer -= delta;
   if (spawnTimer <= 0) {
-    wave += 1;
-    const x = (Math.random() * 2 - 1) * 4.1;
-    spawnMother(wave % 2 === 0 ? 0 : 2, x, -5 - Math.random() * 4);
+    if (enemies.filter((enemy) => enemy.alive).length < maxActiveEnemies) {
+      wave += 1;
+      const x = (Math.random() * 2 - 1) * 4.1;
+      spawnMother(wave % 2 === 0 ? 0 : 2, x, -5 - Math.random() * 4);
+    }
     spawnTimer = Math.max(7, 13 - wave * 0.45);
   }
 }
