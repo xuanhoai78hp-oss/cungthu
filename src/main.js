@@ -21,9 +21,9 @@ scene.background = new THREE.Color("#9cc9ce");
 scene.fog = new THREE.Fog("#9cc9ce", 20, 62);
 
 const camera = new THREE.PerspectiveCamera(67, 1, 0.1, 100);
-camera.position.set(0, 5.5, -22);
+camera.position.set(0, 8.4, -18.5);
 camera.rotation.order = "YXZ";
-const zoomCamera = new THREE.PerspectiveCamera(24, 1, 0.1, 100);
+const zoomCamera = new THREE.PerspectiveCamera(12, 1, 0.1, 100);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -39,7 +39,7 @@ const arrows = [];
 const particles = [];
 const decorations = [];
 const startingYaw = Math.PI;
-const startingPitch = -0.28;
+const startingPitch = -0.38;
 const maxActiveEnemies = 4;
 const aim = {
   yaw: startingYaw,

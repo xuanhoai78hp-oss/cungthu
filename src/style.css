@@ -535,7 +535,8 @@ h1 em {
   .aim-zoom {
     top: 72px;
     right: 14px;
-    width: min(190px, 44vw);
+    width: min(240px, 58vw);
+    aspect-ratio: 4 / 3;
   }
 
   .hud {
