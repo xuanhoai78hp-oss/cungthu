@@ -4,19 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#11211d" />
-    <title>Cung Thủ - Thủ Thành</title>
+    <title>Phòng Không - Thủ Thành</title>
   </head>
   <body>
     <main id="game">
       <div id="viewport" aria-label="Khung cảnh trò chơi"></div>
       <aside id="aim-zoom" class="aim-zoom" aria-label="Phóng to hướng ngắm">
-        <span class="aim-zoom-label"><i></i> LIVE · HƯỚNG BẮN</span>
+        <span class="aim-zoom-label"><i></i> LIVE · HƯỚNG NGẮM</span>
       </aside>
       <header class="hud">
         <div class="brand">
-          <span class="brand-mark">弓</span>
+          <span class="brand-mark">✈</span>
           <div>
-            <strong>CUNG THỦ</strong>
+            <strong>PHÒNG KHÔNG</strong>
             <span>PHÒNG TUYẾN RỪNG CỔ</span>
           </div>
         </div>
@@ -43,9 +43,9 @@
       <div class="controls">
         <button id="gyro-button" class="control-button" type="button">BẬT GYRO</button>
         <button id="recenter-button" class="control-button secondary" type="button" disabled>ĐẶT LẠI TÂM</button>
-        <button id="fire-button" class="fire-button" type="button" aria-label="Bắn tên">
-          <span class="fire-icon">➤</span>
-          <span>BẮN</span>
+        <button id="fire-button" class="fire-button" type="button" aria-label="Giữ để bắn súng liên thanh">
+          <span class="fire-icon">✹</span>
+          <span>GIỮ ĐỂ BẮN</span>
           <kbd>SPACE</kbd>
         </button>
       </div>
@@ -58,15 +58,15 @@
       <section id="overlay" class="overlay">
         <div class="intro-card">
           <div class="intro-kicker"><span></span> NHIỆM VỤ PHÒNG THỦ</div>
-          <h1>Rừng cổ<br /><em>đang thức giấc.</em></h1>
+          <h1>Không phận<br /><em>bị xâm phạm.</em></h1>
           <p>
-            Côn trùng tràn về cổng thành. Kéo để ngắm, bật gyro để xoay theo
-            thiết bị và bắn tên sét trước khi chúng phá vỡ phòng tuyến.
+            Máy bay địch bay vào thả bom từ độ cao 20 đơn vị. Kéo để ngắm, bật gyro
+            để xoay theo thiết bị và giữ nút bắn để bảo vệ cổng thành.
           </p>
           <div class="intro-features">
-            <span>✦ MẸ BAY &amp; MẸ BÒ</span>
-            <span>✦ CON BÒ ZICZAC</span>
-            <span>✦ TÊN SÉT</span>
+            <span>✦ 2 LOẠI MÁY BAY</span>
+            <span>✦ NHIỀU ĐƯỜNG BAY</span>
+            <span>✦ SÚNG LIÊN THANH</span>
           </div>
           <button id="start-button" class="start-button" type="button">VÀO TRẬN <span>→</span></button>
           <small>Âm thanh được tạo bằng Web Audio API · Có thể bật gyro sau khi vào trận</small>
@@ -77,7 +77,7 @@
         <div class="intro-card result-card">
           <div class="intro-kicker"><span></span> KẾT THÚC TRẬN ĐÁNH</div>
           <h1 id="result-title">Cổng thành<br /><em>đã thất thủ.</em></h1>
-          <p id="result-copy">Đội quân côn trùng đã phá vỡ phòng tuyến.</p>
+          <p id="result-copy">Máy bay địch đã phá vỡ phòng tuyến bằng bom.</p>
           <div class="result-score"><span>ĐIỂM SỐ</span><strong id="final-score">0000</strong></div>
           <button id="restart-button" class="start-button" type="button">CHƠI LẠI <span>→</span></button>
         </div>

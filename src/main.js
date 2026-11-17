@@ -18,7 +18,7 @@ const aimZoom = document.querySelector("#aim-zoom");
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#9cc9ce");
-scene.fog = new THREE.Fog("#9cc9ce", 20, 62);
+scene.fog = new THREE.Fog("#9cc9ce", 25, 95);
 
 const camera = new THREE.PerspectiveCamera(67, 1, 0.1, 100);
 camera.position.set(0, 8.4, -18.5);
@@ -35,11 +35,12 @@ viewport.appendChild(renderer.domElement);
 
 const clock = new THREE.Clock();
 const enemies = [];
-const arrows = [];
+const bullets = [];
+const bombs = [];
 const particles = [];
 const decorations = [];
 const startingYaw = Math.PI;
-const startingPitch = -0.38;
+const startingPitch = -0.16;
 const maxActiveEnemies = 4;
 const aim = {
   yaw: startingYaw,
@@ -48,12 +49,10 @@ const aim = {
   targetPitch: startingPitch,
 };
 const maxGateHealth = 8;
-const insectColors = ["#6eaa54", "#c94e45", "#d5a333", "#a83b36"];
+const aircraftColors = ["#566c68", "#8a5948"];
+const aircraftAltitude = 20;
 const shared = {
   sphere: new THREE.SphereGeometry(1, 12, 9),
-  smallSphere: new THREE.SphereGeometry(1, 8, 6),
-  leg: new THREE.CylinderGeometry(0.035, 0.022, 1, 5),
-  wing: new THREE.SphereGeometry(1, 10, 7),
 };
 
 let gameState = "ready";
@@ -61,12 +60,12 @@ let score = 0;
 let kills = 0;
 let gateHealth = maxGateHealth;
 let wave = 1;
-let spawnTimer = 8;
+let spawnTimer = 2.8;
 let fireCooldown = 0;
+let fireHeld = false;
 let audioContext = null;
 let gyroEnabled = false;
 let gyroOrigin = null;
-let spriteFrames = null;
 let dragging = false;
 let lastPointer = null;
 
@@ -218,240 +217,100 @@ function createCastleGate() {
   }
 }
 
-function createBow() {
-  const bow = new THREE.Group();
-  const darkWood = new THREE.MeshStandardMaterial({ color: "#292b25", roughness: 0.4, metalness: 0.45 });
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.02, -0.52, 0),
-    new THREE.Vector3(-0.2, -0.34, 0),
-    new THREE.Vector3(-0.26, 0, 0),
-    new THREE.Vector3(-0.2, 0.34, 0),
-    new THREE.Vector3(-0.02, 0.52, 0),
-  ]);
-  bow.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.035, 8, false), darkWood));
-
-  const stringGeometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-0.02, -0.52, 0),
-    new THREE.Vector3(0.11, 0, 0),
-    new THREE.Vector3(-0.02, 0.52, 0),
-  ]);
-  bow.add(new THREE.Line(stringGeometry, new THREE.LineBasicMaterial({ color: "#e9e5d4" })));
-
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.22, 8), material("#806343"));
-  grip.position.set(-0.25, 0, 0.015);
-  bow.add(grip);
-  bow.position.set(0.66, -0.42, -1.05);
-  camera.add(bow);
+function createMachineGun() {
+  const gun = new THREE.Group();
+  const gunMetal = material("#343b39", { metalness: 0.7, roughness: 0.32 });
+  const gripMaterial = material("#5c4635");
+  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 0.55), gunMetal);
+  receiver.position.set(0, 0, 0.05);
+  gun.add(receiver);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.8, 8), gunMetal);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = -0.58;
+  gun.add(barrel);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.24, 0.13), gripMaterial);
+  grip.position.set(0, -0.19, 0.18);
+  grip.rotation.x = -0.18;
+  gun.add(grip);
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.14, 0.28), gunMetal);
+  stock.position.z = 0.42;
+  gun.add(stock);
+  gun.position.set(0.58, -0.48, -1.05);
+  camera.add(gun);
   scene.add(camera);
 }
 
-function createInsectFallback(type, isMother, flying) {
+function createAircraft(type) {
   const group = new THREE.Group();
-  const color = insectColors[type];
-  const bodyMaterial = material(color, { roughness: 0.67 });
-  const darkMaterial = material("#362b24");
-  const head = new THREE.Mesh(shared.smallSphere, bodyMaterial);
-  head.scale.set(0.32, 0.25, 0.31);
-  head.position.set(0, 0.26, -0.28);
-  group.add(head);
+  const bodyColor = aircraftColors[type];
+  const bodyMaterial = material(bodyColor, { metalness: 0.35, roughness: 0.55 });
+  const wingMaterial = material(type === 0 ? "#9aa28e" : "#776b60", { metalness: 0.25 });
+  const cockpitMaterial = material("#83c5cb", { metalness: 0.55, roughness: 0.2 });
+  const addPart = (geometry, partMaterial, position, rotation = [0, 0, 0]) => {
+    const part = new THREE.Mesh(geometry, partMaterial);
+    part.position.set(...position);
+    part.rotation.set(...rotation);
+    part.castShadow = true;
+    part.receiveShadow = true;
+    group.add(part);
+    return part;
+  };
+  addPart(new THREE.CylinderGeometry(0.12, type === 0 ? 0.24 : 0.3, 2.05, 8), bodyMaterial, [0, 0, 0], [-Math.PI / 2, 0, 0]);
+  addPart(new THREE.ConeGeometry(0.2, 0.62, 8), bodyMaterial, [0, 0, -1.27], [-Math.PI / 2, 0, 0]);
+  addPart(new THREE.BoxGeometry(type === 0 ? 2.6 : 3.1, 0.1, 0.64), wingMaterial, [0, -0.02, 0.08], [0, 0, type === 0 ? -0.06 : 0.04]);
+  addPart(new THREE.BoxGeometry(type === 0 ? 0.98 : 1.3, 0.08, 0.38), bodyMaterial, [0, 0.03, 0.82]);
+  addPart(new THREE.BoxGeometry(0.1, 0.48, 0.42), bodyMaterial, [0, 0.23, 0.82]);
+  const cockpit = addPart(new THREE.SphereGeometry(0.19, 10, 7), cockpitMaterial, [0, 0.2, -0.35]);
+  cockpit.scale.set(0.8, 0.75, 1.3);
 
-  const abdomen = new THREE.Mesh(shared.sphere, bodyMaterial);
-  abdomen.scale.set(0.39, 0.28, 0.53);
-  abdomen.position.set(0, 0.23, 0.12);
-  group.add(abdomen);
-
-  const eyes = new THREE.Mesh(shared.smallSphere, darkMaterial);
-  eyes.scale.set(0.045, 0.055, 0.04);
-  for (const side of [-1, 1]) {
-    const eye = eyes.clone();
-    eye.position.set(side * 0.16, 0.3, -0.5);
-    group.add(eye);
-  }
-
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < 3; i += 1) {
-      const leg = new THREE.Mesh(shared.leg, darkMaterial);
-      const x = side * 0.3;
-      const z = -0.12 + i * 0.23;
-      leg.position.set(x + side * 0.1, 0.06, z);
-      leg.rotation.z = side * -0.65;
-      leg.rotation.x = (i - 1) * 0.2;
-      leg.scale.y = isMother ? 0.42 : 0.28;
-      group.add(leg);
-    }
-  }
-
-  const wings = [];
-  if (flying && isMother) {
+  if (type === 0) {
+    addPart(new THREE.CylinderGeometry(0.035, 0.035, 0.62, 8), bodyMaterial, [0, 0, -1.83], [0, 0, Math.PI / 2]);
+  } else {
     for (const side of [-1, 1]) {
-      const wing = new THREE.Mesh(
-        shared.wing,
-        new THREE.MeshStandardMaterial({
-          color: "#d9e8c2",
-          transparent: true,
-          opacity: 0.78,
-          roughness: 0.4,
-          side: THREE.DoubleSide,
-        }),
-      );
-      wing.scale.set(0.31, 0.045, 0.5);
-      wing.position.set(side * 0.34, 0.47, 0.03);
-      wing.rotation.z = side * 0.3;
-      group.add(wing);
-      wings.push(wing);
+      const engine = addPart(new THREE.CylinderGeometry(0.13, 0.16, 0.55, 8), bodyMaterial, [side * 0.83, -0.08, 0.02], [-Math.PI / 2, 0, 0]);
+      engine.scale.set(1, 1, 0.75);
     }
   }
-  group.userData.wings = wings;
+  group.scale.setScalar(type === 0 ? 1 : 1.14);
   return group;
 }
 
-function loadInsectSprites() {
-  const image = new Image();
-  image.src = "/cungthu.png";
-  image.onload = () => {
-    const groups = {
-      flyingMother: { y: 40, firstColumn: 0 },
-      flyingChild: { y: 40, firstColumn: 4 },
-      crawlingMother: { y: 80, firstColumn: 0 },
-      crawlingChild: { y: 80, firstColumn: 4 },
-    };
-    const cellWidth = image.width / 8;
-    spriteFrames = {};
-    for (const [name, group] of Object.entries(groups)) {
-      spriteFrames[name] = Array.from({ length: 4 }, (_, frame) => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 80;
-        canvas.height = 80;
-        const context = canvas.getContext("2d");
-        context.imageSmoothingEnabled = false;
-        context.drawImage(
-          image,
-          (group.firstColumn + frame) * cellWidth,
-          group.y,
-          cellWidth,
-          40,
-          0,
-          0,
-          80,
-          80,
-        );
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
-        return texture;
-      });
-    }
-    enemies.forEach(applySprite);
-  };
-  image.onerror = () => {
-    statusLabel.textContent = "THIẾU ẢNH CÔN TRÙNG";
-  };
-}
-
-function applySprite(enemy) {
-  if (!spriteFrames || enemy.sprite) return;
-  const key = `${enemy.flying ? "flying" : "crawling"}${enemy.isMother ? "Mother" : "Child"}`;
-  const frames = spriteFrames[key];
-  if (!frames) return;
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: frames[0],
-      transparent: true,
-      alphaTest: 0.08,
-      depthWrite: false,
-    }),
-  );
-  sprite.scale.set(1.35, 1.35, 1);
-  sprite.position.y = 0.42;
-  enemy.group.add(sprite);
-  enemy.visual.visible = false;
-  enemy.sprite = sprite;
-  enemy.spriteFrames = frames;
-  setSpriteFacing(enemy, enemy.facingLeft ?? false);
-}
-
-function setSpriteFacing(enemy, faceLeft) {
-  enemy.facingLeft = faceLeft;
-  enemy.visual.scale.x = faceLeft ? -1 : 1;
-  if (enemy.sprite) enemy.sprite.scale.x = faceLeft ? -0.95 : 0.95;
-}
-
-function spawnMother(type, x, z) {
-  const flying = type < 2;
-  const isMother = true;
-  const group = new THREE.Group();
-  const visual = createInsectFallback(type, isMother, flying);
-  group.add(visual);
-  for (const wing of visual.userData.wings ?? []) group.add(wing);
-  group.scale.setScalar(1.12);
-  group.position.set(x, flying ? 2.05 : 0.11, z);
+function spawnAircraft(type, x, z, path) {
+  const group = createAircraft(type);
+  group.position.set(x, aircraftAltitude, z);
   scene.add(group);
   const enemy = {
     group,
-    visual,
-    sprite: null,
-    spriteFrames: null,
     type,
-    flying,
-    isMother,
+    color: aircraftColors[type],
     alive: true,
-    hp: 3,
-    maxHp: 3,
-    age: Math.random() * 5,
-    facingLeft: false,
-    speed: flying ? 0 : 0.42,
-    baseX: x,
-    childrenAlive: 0,
+    hp: type === 0 ? 2 : 3,
+    age: 0,
+    speed: type === 0 ? 5.4 : 4.5,
+    startX: x,
+    path,
+    seed: Math.random() * Math.PI * 2,
+    startZ: z,
+    bombTimer: 1.4 + Math.random() * 1.8,
   };
   enemies.push(enemy);
-  applySprite(enemy);
   return enemy;
 }
 
-function spawnChild(parent, offset = 0) {
-  if (!parent.alive) return;
-  const flying = parent.flying;
-  const type = flying ? 1 : 3;
+function spawnBomb(enemy) {
   const group = new THREE.Group();
-  const visual = createInsectFallback(type, false, false);
-  group.add(visual);
-  group.scale.setScalar(0.6);
-  const startY = flying ? parent.group.position.y : 0.13;
-  group.position.set(
-    THREE.MathUtils.clamp(parent.group.position.x + offset, -6.4, 6.4),
-    startY,
-    parent.group.position.z,
+  const casing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.16, 0.48, 8),
+    material("#33312b", { metalness: 0.45, roughness: 0.5 }),
   );
+  group.add(casing);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.22, 8), material("#b24f32", { emissive: "#512013" }));
+  tip.position.y = -0.31;
+  group.add(tip);
+  group.position.copy(enemy.group.position);
+  group.position.y -= 0.55;
   scene.add(group);
-  const child = {
-    group,
-    visual,
-    sprite: null,
-    spriteFrames: null,
-    type,
-    flying,
-    isMother: false,
-    alive: true,
-    hp: 1,
-    maxHp: 1,
-    age: 0,
-    facingLeft: false,
-    speed: (1.25 + Math.random() * 0.35) * 0.3,
-    baseX: group.position.x,
-    seed: Math.random() * Math.PI * 2 + offset,
-    falling: flying,
-    startY,
-    fallTime: 0,
-    parent,
-  };
-  enemies.push(child);
-  parent.childrenAlive += 1;
-  applySprite(child);
-}
-
-function spawnChildFor(parent) {
-  spawnChild(parent, parent.baseX < 0 ? 0.95 : -0.95);
+  bombs.push({ group, velocity: new THREE.Vector3(0, -1, -enemy.speed) });
 }
 
 function startGame() {
@@ -460,8 +319,9 @@ function startGame() {
   kills = 0;
   gateHealth = maxGateHealth;
   wave = 1;
-  spawnTimer = 13;
+  spawnTimer = 2.8;
   fireCooldown = 0;
+  fireHeld = false;
   aim.yaw = startingYaw;
   aim.targetYaw = startingYaw;
   aim.pitch = startingPitch;
@@ -469,17 +329,15 @@ function startGame() {
   gameState = "playing";
   overlay.classList.add("hidden");
   gameOverOverlay.classList.add("hidden");
-  statusLabel.textContent = "PHÒNG THỦ";
+  statusLabel.textContent = "PHÒNG KHÔNG";
   updateHud();
-  const flyingMother = spawnMother(0, -3.4, -5.8);
-  const crawlingMother = spawnMother(2, 3.4, -6.8);
-  spawnChildFor(flyingMother);
-  spawnChildFor(crawlingMother);
+  spawnAircraft(Math.floor(Math.random() * 2), -3.6, 48, 0);
+  spawnAircraft(Math.floor(Math.random() * 2), 3.6, 57, 2);
   unlockAudio();
 }
 
 function clearGameObjects() {
-  for (const collection of [enemies, arrows, particles]) {
+  for (const collection of [enemies, bullets, bombs, particles]) {
     for (const item of collection) scene.remove(item.group ?? item.mesh);
     collection.length = 0;
   }
@@ -490,10 +348,10 @@ function endGame() {
   document.querySelector("#final-score").textContent = String(score).padStart(4, "0");
   if (gateHealth <= 0) {
     document.querySelector("#result-title").innerHTML = "Cổng thành<br /><em>đã thất thủ.</em>";
-    document.querySelector("#result-copy").textContent = "Đội quân côn trùng đã phá vỡ phòng tuyến.";
+    document.querySelector("#result-copy").textContent = "Máy bay địch đã phá vỡ phòng tuyến bằng bom.";
   } else {
     document.querySelector("#result-title").innerHTML = "Phòng tuyến<br /><em>đã trụ vững.</em>";
-    document.querySelector("#result-copy").textContent = "Bạn đã hoàn thành đợt tấn công.";
+    document.querySelector("#result-copy").textContent = "Bạn đã chặn đứng đợt không kích.";
   }
   gameOverOverlay.classList.remove("hidden");
   statusLabel.textContent = "KẾT THÚC";
@@ -537,8 +395,8 @@ function playTone({ frequency, endFrequency, duration, type, volume, delay = 0 }
 }
 
 function playShootSound() {
-  playTone({ frequency: 570, endFrequency: 130, duration: 0.13, type: "triangle", volume: 0.18 });
-  playTone({ frequency: 1250, endFrequency: 380, duration: 0.07, type: "sine", volume: 0.045, delay: 0.015 });
+  playTone({ frequency: 210, endFrequency: 72, duration: 0.075, type: "square", volume: 0.07 });
+  playTone({ frequency: 860, endFrequency: 280, duration: 0.045, type: "triangle", volume: 0.025, delay: 0.008 });
 }
 
 function playHitSound() {
@@ -546,77 +404,23 @@ function playHitSound() {
   playTone({ frequency: 740, endFrequency: 180, duration: 0.12, type: "square", volume: 0.045 });
 }
 
-function createLightningArrow() {
-  const group = new THREE.Group();
-  const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.022, 0.026, 0.88, 6),
-    new THREE.MeshStandardMaterial({ color: "#d9bd78", emissive: "#c5a447", emissiveIntensity: 0.35 }),
-  );
-  shaft.rotation.x = Math.PI / 2;
-  group.add(shaft);
-
-  const tip = new THREE.Mesh(
-    new THREE.ConeGeometry(0.075, 0.22, 5),
-    new THREE.MeshStandardMaterial({
-      color: "#d7fbff",
-      emissive: "#56e9ff",
-      emissiveIntensity: 2.4,
-    }),
-  );
-  tip.rotation.x = Math.PI / 2;
-  tip.position.z = -0.53;
-  group.add(tip);
-
-  const featherMaterial = new THREE.MeshBasicMaterial({ color: "#80ecff" });
-  for (const side of [-1, 1]) {
-    const feather = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.025, 0.18), featherMaterial);
-    feather.position.set(side * 0.055, 0, 0.34);
-    feather.rotation.y = side * 0.3;
-    group.add(feather);
-  }
-
-  const lightningMaterial = new THREE.LineBasicMaterial({
-    color: "#a9f6ff",
-    transparent: true,
-    opacity: 0.95,
-    blending: THREE.AdditiveBlending,
-  });
-  const bolts = [];
-  for (const side of [-1, 1]) {
-    const points = [
-      new THREE.Vector3(0, 0, -0.52),
-      new THREE.Vector3(side * 0.09, 0.055, -0.31),
-      new THREE.Vector3(-side * 0.065, -0.04, -0.08),
-      new THREE.Vector3(side * 0.12, 0.05, 0.12),
-      new THREE.Vector3(0, 0, 0.32),
-    ];
-    const bolt = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(points),
-      lightningMaterial.clone(),
-    );
-    group.add(bolt);
-    bolts.push(bolt);
-  }
-  const light = new THREE.PointLight("#69eaff", 1.8, 2.4);
-  light.position.z = -0.3;
-  group.add(light);
-  return { group, bolts, light };
-}
-
 function shoot() {
   if (gameState !== "playing" || fireCooldown > 0) return;
-  fireCooldown = 0.3;
+  fireCooldown = 0.1;
   playShootSound();
   const direction = new THREE.Vector3();
   camera.getWorldDirection(direction);
   const position = camera.position.clone().addScaledVector(direction, 0.9);
-  const arrowVisual = createLightningArrow();
-  arrowVisual.group.position.copy(position);
-  arrowVisual.group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction);
-  scene.add(arrowVisual.group);
-  arrows.push({
-    ...arrowVisual,
-    velocity: direction.multiplyScalar(31),
+  const bullet = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, 0.52, 6),
+    new THREE.MeshBasicMaterial({ color: "#ffe59a" }),
+  );
+  bullet.position.copy(position);
+  bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+  scene.add(bullet);
+  bullets.push({
+    group: bullet,
+    velocity: direction.multiplyScalar(80),
     age: 0,
     previous: position.clone(),
   });
@@ -630,19 +434,15 @@ function pointSegmentDistance(point, start, end) {
   return point.distanceTo(start.addScaledVector(segment, t));
 }
 
-function removeArrow(index) {
-  const [arrow] = arrows.splice(index, 1);
-  scene.remove(arrow.group);
+function removeBullet(index) {
+  const [bullet] = bullets.splice(index, 1);
+  scene.remove(bullet.group);
 }
 
 function removeEnemy(enemy) {
   if (!enemy.alive) return;
   enemy.alive = false;
   scene.remove(enemy.group);
-  if (!enemy.isMother && enemy.parent?.alive) {
-    enemy.parent.childrenAlive = Math.max(0, enemy.parent.childrenAlive - 1);
-    if (enemy.parent.childrenAlive === 0) spawnChildFor(enemy.parent);
-  }
 }
 
 function createBurst(position, color) {
@@ -676,31 +476,23 @@ function createBurst(position, color) {
   particles.push({ mesh: flash, velocity: new THREE.Vector3(), age: 0, life: 0.18 });
 }
 
-function updateArrows(delta) {
-  for (let i = arrows.length - 1; i >= 0; i -= 1) {
-    const arrow = arrows[i];
-    arrow.age += delta;
-    arrow.previous.copy(arrow.group.position);
-    arrow.group.position.addScaledVector(arrow.velocity, delta);
-    arrow.group.rotateZ(Math.sin(arrow.age * 22) * 0.008);
-    const glow = 1.15 + Math.sin(arrow.age * 38) * 0.5;
-    arrow.light.intensity = glow;
-    arrow.bolts.forEach((bolt, index) => {
-      bolt.material.opacity = 0.55 + Math.sin(arrow.age * 45 + index) * 0.4;
-    });
-
+function updateBullets(delta) {
+  for (let i = bullets.length - 1; i >= 0; i -= 1) {
+    const bullet = bullets[i];
+    bullet.age += delta;
+    bullet.previous.copy(bullet.group.position);
+    bullet.group.position.addScaledVector(bullet.velocity, delta);
     let hit = false;
     for (const enemy of enemies) {
       if (!enemy.alive) continue;
       const target = enemy.group.position.clone();
-      target.y += enemy.isMother ? 0.45 : 0.2;
-      const radius = enemy.isMother ? 0.8 : 0.42;
-      if (pointSegmentDistance(target, arrow.previous, arrow.group.position) < radius) {
+      const radius = enemy.type === 0 ? 1.15 : 1.35;
+      if (pointSegmentDistance(target, bullet.previous, bullet.group.position) < radius) {
         enemy.hp -= 1;
         playHitSound();
-        createBurst(arrow.group.position, insectColors[enemy.type]);
+        createBurst(bullet.group.position, enemy.color);
         if (enemy.hp <= 0) {
-          score += enemy.isMother ? 250 : 100;
+          score += enemy.type === 0 ? 250 : 350;
           kills += 1;
           removeEnemy(enemy);
         }
@@ -709,65 +501,63 @@ function updateArrows(delta) {
       }
     }
 
-    if (hit || arrow.age > 1.8) removeArrow(i);
+    if (hit || bullet.age > 1.3) removeBullet(i);
   }
 }
 
-function updateEnemies(delta, elapsed) {
+function updateEnemies(delta) {
   for (const enemy of enemies) {
     if (!enemy.alive) continue;
     enemy.age += delta;
-    if (enemy.isMother) {
-      if (enemy.flying) {
-        enemy.group.position.y = 2.05 + Math.sin(enemy.age * 2.3) * 0.16;
-        enemy.group.position.x = enemy.baseX + Math.sin(enemy.age * 0.6) * 0.42;
-      } else {
-        enemy.group.position.z -= enemy.speed * delta;
-        enemy.group.position.x = enemy.baseX + Math.sin(enemy.age * 0.9) * 0.32;
-        setSpriteFacing(enemy, Math.cos(enemy.age * 0.9) < 0);
-      }
-      const wings = enemy.visual.userData.wings ?? [];
-      wings.forEach((wing, index) => {
-        wing.rotation.z = Math.sin(elapsed * 18 + index * Math.PI) * 0.62;
-      });
-      if (!enemy.flying && enemy.group.position.z < -17.5) {
-        gateHealth = Math.max(0, gateHealth - 2);
-        createBurst(enemy.group.position, "#d7a348");
-        removeEnemy(enemy);
-      }
+    enemy.group.position.z -= enemy.speed * delta;
+    const progress = THREE.MathUtils.clamp((enemy.startZ - enemy.group.position.z) / (enemy.startZ + 20), 0, 1);
+    if (enemy.path === 0) {
+      enemy.group.position.x = enemy.startX;
+    } else if (enemy.path === 1) {
+      enemy.group.position.x = THREE.MathUtils.lerp(enemy.startX, -enemy.startX, progress);
+    } else if (enemy.path === 2) {
+      enemy.group.position.x = enemy.startX + Math.sin(progress * Math.PI * 2 + enemy.seed) * 3;
     } else {
-      if (enemy.falling) {
-        enemy.fallTime += delta;
-        const progress = Math.min(1, enemy.fallTime / 0.7);
-        enemy.group.position.y = THREE.MathUtils.lerp(enemy.startY, 0.13, progress);
-        if (progress === 1) enemy.falling = false;
-      }
-      enemy.group.position.z -= enemy.speed * delta;
-      enemy.group.position.x = THREE.MathUtils.clamp(
-        enemy.baseX + Math.sin(enemy.age * 3.3 + enemy.seed) * 1.15,
-        -6.8,
-        6.8,
-      );
-      setSpriteFacing(enemy, Math.cos(enemy.age * 3.3 + enemy.seed) < 0);
-      enemy.group.rotation.y = Math.sin(enemy.age * 3.3 + enemy.seed) * 0.18;
-      if (enemy.spriteFrames && enemy.sprite) {
-        enemy.sprite.material.map = enemy.spriteFrames[Math.floor(elapsed * 8) % enemy.spriteFrames.length];
-      }
-      if (enemy.group.position.z < -17.5) {
-        gateHealth = Math.max(0, gateHealth - 1);
-        createBurst(enemy.group.position, insectColors[enemy.type]);
-        removeEnemy(enemy);
-      }
+      enemy.group.position.x = enemy.startX + Math.sin(progress * Math.PI * 4 + enemy.seed) * 1.6;
+    }
+    enemy.group.position.y = aircraftAltitude + Math.sin(enemy.age * 1.6 + enemy.seed) * 0.3;
+    enemy.group.rotation.z = enemy.path === 1 ? Math.sign(-enemy.startX) * 0.08 : Math.sin(enemy.age * 1.5) * 0.035;
+    enemy.bombTimer -= delta;
+    if (enemy.bombTimer <= 0) {
+      spawnBomb(enemy);
+      enemy.bombTimer = 2.4 + Math.random() * 1.8;
+    }
+    if (enemy.group.position.z < -22) {
+      removeEnemy(enemy);
     }
   }
   spawnTimer -= delta;
   if (spawnTimer <= 0) {
     if (enemies.filter((enemy) => enemy.alive).length < maxActiveEnemies) {
       wave += 1;
-      const x = (Math.random() * 2 - 1) * 4.1;
-      spawnMother(wave % 2 === 0 ? 0 : 2, x, -5 - Math.random() * 4);
+      const x = (Math.random() * 2 - 1) * 4.8;
+      spawnAircraft(Math.floor(Math.random() * 2), x, 48 + Math.random() * 12, Math.floor(Math.random() * 4));
     }
-    spawnTimer = Math.max(7, 13 - wave * 0.45);
+    spawnTimer = Math.max(1.6, 3.8 - wave * 0.12);
+  }
+}
+
+function updateBombs(delta) {
+  for (let i = bombs.length - 1; i >= 0; i -= 1) {
+    const bomb = bombs[i];
+    bomb.velocity.y -= 9.8 * delta;
+    bomb.group.position.addScaledVector(bomb.velocity, delta);
+    bomb.group.rotation.z += delta * 1.8;
+    if (bomb.group.position.y > 0) continue;
+
+    const impact = bomb.group.position.clone();
+    impact.y = 0.15;
+    createBurst(impact, "#ff8c43");
+    if (Math.abs(impact.x) < 5.5 && impact.z > -25 && impact.z < -8) {
+      gateHealth = Math.max(0, gateHealth - 1);
+    }
+    scene.remove(bomb.group);
+    bombs.splice(i, 1);
   }
 }
 
@@ -802,12 +592,13 @@ function updateAim(delta) {
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.04);
-  const elapsed = clock.elapsedTime;
   updateAim(delta);
   if (gameState === "playing") {
     fireCooldown = Math.max(0, fireCooldown - delta);
-    updateEnemies(delta, elapsed);
-    updateArrows(delta);
+    if (fireHeld && fireCooldown <= 0) shoot();
+    updateEnemies(delta);
+    updateBullets(delta);
+    updateBombs(delta);
     updateParticles(delta);
     updateHud();
     if (gateHealth <= 0) endGame();
@@ -918,7 +709,18 @@ function recenterGyro() {
 
 startButton.addEventListener("click", startGame);
 restartButton.addEventListener("click", startGame);
-fireButton.addEventListener("click", shoot);
+fireButton.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  fireButton.setPointerCapture(event.pointerId);
+  fireHeld = true;
+  shoot();
+});
+fireButton.addEventListener("pointerup", () => {
+  fireHeld = false;
+});
+fireButton.addEventListener("pointercancel", () => {
+  fireHeld = false;
+});
 gyroButton.addEventListener("click", () => {
   enableGyro().catch((error) => {
     statusLabel.textContent = "KHÔNG THỂ BẬT GYRO";
@@ -933,6 +735,8 @@ window.addEventListener("pointerup", onPointerUp);
 window.addEventListener("keydown", (event) => {
   if (event.code === "Space") {
     event.preventDefault();
+    if (event.repeat) return;
+    fireHeld = true;
     shoot();
   }
   if (event.code === "ArrowLeft" || event.code === "KeyA") aim.targetYaw += 0.045;
@@ -940,9 +744,14 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "ArrowUp" || event.code === "KeyW") aim.targetPitch = Math.min(0.65, aim.targetPitch + 0.035);
   if (event.code === "ArrowDown" || event.code === "KeyS") aim.targetPitch = Math.max(-0.82, aim.targetPitch - 0.035);
 });
+window.addEventListener("keyup", (event) => {
+  if (event.code === "Space") fireHeld = false;
+});
+window.addEventListener("blur", () => {
+  fireHeld = false;
+});
 
 createScenery();
-createBow();
-loadInsectSprites();
+createMachineGun();
 resize();
 animate();
