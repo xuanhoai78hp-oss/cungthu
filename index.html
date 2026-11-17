@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#11211d" />
+    <title>Cung Thủ - Thủ Thành</title>
+  </head>
+  <body>
+    <main id="game">
+      <div id="viewport" aria-label="Khung cảnh trò chơi"></div>
+      <header class="hud">
+        <div class="brand">
+          <span class="brand-mark">弓</span>
+          <div>
+            <strong>CUNG THỦ</strong>
+            <span>PHÒNG TUYẾN RỪNG CỔ</span>
+          </div>
+        </div>
+        <div class="stats">
+          <div><span>ĐIỂM</span><strong id="score">0000</strong></div>
+          <div><span>ĐÃ HẠ</span><strong id="kills">0</strong></div>
+          <div class="gate-stat">
+            <span>CỔNG THÀNH</span>
+            <div class="health-track"><i id="gate-fill"></i></div>
+          </div>
+        </div>
+      </header>
+
+      <div class="crosshair" aria-hidden="true"><i></i><b></b></div>
+      <div class="aim-hint">KÉO ĐỂ NGẮM</div>
+
+      <aside class="left-panel">
+        <span class="live-dot"></span>
+        <span id="status">CHỜ LỆNH</span>
+        <span class="divider"></span>
+        <span id="enemy-count">0 MỤC TIÊU</span>
+      </aside>
+
+      <div class="controls">
+        <button id="gyro-button" class="control-button" type="button">BẬT GYRO</button>
+        <button id="recenter-button" class="control-button secondary" type="button" disabled>ĐẶT LẠI TÂM</button>
+        <button id="fire-button" class="fire-button" type="button" aria-label="Bắn tên">
+          <span class="fire-icon">➤</span>
+          <span>BẮN</span>
+          <kbd>SPACE</kbd>
+        </button>
+      </div>
+
+      <footer class="footer-hint">
+        <span>GIỮ CỔNG THÀNH AN TOÀN</span>
+        <span>DI CHUỘT / CẢM ỨNG ĐỂ NGẮM</span>
+      </footer>
+
+      <section id="overlay" class="overlay">
+        <div class="intro-card">
+          <div class="intro-kicker"><span></span> NHIỆM VỤ PHÒNG THỦ</div>
+          <h1>Rừng cổ<br /><em>đang thức giấc.</em></h1>
+          <p>
+            Côn trùng tràn về cổng thành. Kéo để ngắm, bật gyro để xoay theo
+            thiết bị và bắn tên sét trước khi chúng phá vỡ phòng tuyến.
+          </p>
+          <div class="intro-features">
+            <span>✦ MẸ BAY &amp; MẸ BÒ</span>
+            <span>✦ CON BÒ ZICZAC</span>
+            <span>✦ TÊN SÉT</span>
+          </div>
+          <button id="start-button" class="start-button" type="button">VÀO TRẬN <span>→</span></button>
+          <small>Âm thanh được tạo bằng Web Audio API · Có thể bật gyro sau khi vào trận</small>
+        </div>
+      </section>
+
+      <section id="game-over" class="overlay hidden">
+        <div class="intro-card result-card">
+          <div class="intro-kicker"><span></span> KẾT THÚC TRẬN ĐÁNH</div>
+          <h1 id="result-title">Cổng thành<br /><em>đã thất thủ.</em></h1>
+          <p id="result-copy">Đội quân côn trùng đã phá vỡ phòng tuyến.</p>
+          <div class="result-score"><span>ĐIỂM SỐ</span><strong id="final-score">0000</strong></div>
+          <button id="restart-button" class="start-button" type="button">CHƠI LẠI <span>→</span></button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
