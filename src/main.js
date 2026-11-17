@@ -51,6 +51,10 @@ const aim = {
 const maxGateHealth = 8;
 const aircraftColors = ["#566c68", "#8a5948"];
 const aircraftAltitude = 20;
+const barrels = [];
+let machineGun = null;
+let nextBarrel = 0;
+let gunRecoil = 0;
 const shared = {
   sphere: new THREE.SphereGeometry(1, 12, 9),
 };
@@ -218,26 +222,83 @@ function createCastleGate() {
 }
 
 function createMachineGun() {
-  const gun = new THREE.Group();
+  machineGun = new THREE.Group();
+  const gun = machineGun;
   const gunMetal = material("#343b39", { metalness: 0.7, roughness: 0.32 });
   const gripMaterial = material("#5c4635");
-  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 0.55), gunMetal);
+  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.18, 0.55), gunMetal);
   receiver.position.set(0, 0, 0.05);
   gun.add(receiver);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.8, 8), gunMetal);
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.z = -0.58;
-  gun.add(barrel);
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.24, 0.13), gripMaterial);
-  grip.position.set(0, -0.19, 0.18);
-  grip.rotation.x = -0.18;
-  gun.add(grip);
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.14, 0.28), gunMetal);
+  const sight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.18), gunMetal);
+  sight.position.set(0, 0.13, -0.12);
+  gun.add(sight);
+  for (const side of [-1, 1]) {
+    const barrel = new THREE.Group();
+    barrel.position.set(side * 0.2, 0.045, -0.08);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.05, 0.82, 10), gunMetal);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.z = -0.38;
+    barrel.add(tube);
+
+    const muzzle = new THREE.Group();
+    muzzle.position.z = -0.8;
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.052, 0.012, 6, 12),
+      material("#a5aaa1", { metalness: 0.8, roughness: 0.25 }),
+    );
+    muzzle.add(rim);
+
+    const flash = new THREE.Group();
+    const outerFlare = new THREE.Mesh(
+      new THREE.ConeGeometry(0.12, 0.4, 8),
+      new THREE.MeshBasicMaterial({ color: "#ff762e", transparent: true, opacity: 0.9 }),
+    );
+    outerFlare.rotation.x = -Math.PI / 2;
+    outerFlare.position.z = -0.17;
+    flash.add(outerFlare);
+    const innerFlare = new THREE.Mesh(
+      new THREE.ConeGeometry(0.065, 0.28, 8),
+      new THREE.MeshBasicMaterial({ color: "#fff1a1", transparent: true, opacity: 0.95 }),
+    );
+    innerFlare.rotation.x = -Math.PI / 2;
+    innerFlare.position.z = -0.12;
+    flash.add(innerFlare);
+    flash.visible = false;
+    muzzle.add(flash);
+    const light = new THREE.PointLight("#ff9a42", 0, 2.8);
+    light.position.z = -0.1;
+    muzzle.add(light);
+    barrel.add(muzzle);
+    gun.add(barrel);
+    barrels.push({ group: barrel, muzzle, flash, light, kick: 0, flashTime: 0 });
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.23, 0.14), gripMaterial);
+    grip.position.set(side * 0.2, -0.19, 0.16);
+    grip.rotation.x = -0.18;
+    gun.add(grip);
+  }
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.28), gunMetal);
   stock.position.z = 0.42;
   gun.add(stock);
-  gun.position.set(0.58, -0.48, -1.05);
+  gun.position.set(0.28, -0.48, -1.05);
   camera.add(gun);
   scene.add(camera);
+}
+
+function updateMachineGun(delta) {
+  if (!machineGun) return;
+  gunRecoil *= Math.exp(-delta * 20);
+  machineGun.position.z = -1.05 + gunRecoil;
+  machineGun.rotation.x = -gunRecoil * 0.35;
+  for (const barrel of barrels) {
+    barrel.kick *= Math.exp(-delta * 26);
+    barrel.group.position.z = -0.08 + barrel.kick;
+    barrel.flashTime = Math.max(0, barrel.flashTime - delta);
+    const intensity = barrel.flashTime / 0.075;
+    barrel.flash.visible = intensity > 0;
+    barrel.flash.scale.setScalar(0.72 + intensity * 0.45);
+    barrel.light.intensity = intensity * 2.8;
+  }
 }
 
 function createAircraft(type) {
@@ -408,9 +469,15 @@ function shoot() {
   if (gameState !== "playing" || fireCooldown > 0) return;
   fireCooldown = 0.1;
   playShootSound();
+  const barrel = barrels[nextBarrel];
+  nextBarrel = (nextBarrel + 1) % barrels.length;
+  barrel.kick = 0.11;
+  barrel.flashTime = 0.075;
+  gunRecoil = 0.065;
   const direction = new THREE.Vector3();
   camera.getWorldDirection(direction);
-  const position = camera.position.clone().addScaledVector(direction, 0.9);
+  camera.updateMatrixWorld(true);
+  const position = barrel.muzzle.getWorldPosition(new THREE.Vector3()).addScaledVector(direction, 0.08);
   const bullet = new THREE.Mesh(
     new THREE.CylinderGeometry(0.035, 0.035, 0.52, 6),
     new THREE.MeshBasicMaterial({ color: "#ffe59a" }),
@@ -593,6 +660,7 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.04);
   updateAim(delta);
+  updateMachineGun(delta);
   if (gameState === "playing") {
     fireCooldown = Math.max(0, fireCooldown - delta);
     if (fireHeld && fireCooldown <= 0) shoot();
