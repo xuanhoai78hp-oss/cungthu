@@ -8,7 +8,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         game: resolveFromRoot("./index.html"),
-        dashboard: resolveFromRoot("./dashboard.html"),
+        dashboard: resolveFromRoot("./index.html"),
       },
     },
   },
