@@ -36,7 +36,7 @@ viewport.appendChild(renderer.domElement);
 const clock = new THREE.Clock();
 const enemies = [];
 const bullets = [];
-const bombs = [];
+const bugs = [];
 const particles = [];
 const decorations = [];
 const startingYaw = Math.PI;
@@ -72,6 +72,90 @@ let gyroEnabled = false;
 let gyroOrigin = null;
 let dragging = false;
 let lastPointer = null;
+
+// ==========================================
+// CẤU HÌNH & TẢI SPRITE CÔN TRÙNG TỪ cungthu.png
+// ==========================================
+const TILE_SIZE = 40;
+const BUG_TYPES = {
+  MANTIS_GREEN: { name: 'Bọ ngựa xanh', row: 1, colStart: 0, frames: 4, hp: 1, speed: 5.5, score: 100 },
+  MANTIS_RED:   { name: 'Bọ ngựa đỏ',   row: 1, colStart: 4, frames: 4, hp: 2, speed: 7, score: 180 },
+  SCORPION_YEL: { name: 'Bọ cạp vàng',  row: 2, colStart: 0, frames: 4, hp: 2, speed: 4.8, score: 150 },
+  SCORPION_RED: { name: 'Bọ cạp đỏ',    row: 2, colStart: 4, frames: 4, hp: 3, speed: 6.2, score: 250 },
+};
+const BUG_KEYS = Object.keys(BUG_TYPES);
+let bugTextures = {};
+
+async function loadBugSpriteTextures() {
+  const img = new Image();
+  img.src = './cungthu.png';
+  try {
+    await img.decode();
+  } catch (e) {
+    console.warn("Không thể tải cungthu.png, sử dụng fallback hình khối.", e);
+    return;
+  }
+
+  for (const key of BUG_KEYS) {
+    const cfg = BUG_TYPES[key];
+    bugTextures[key] = [];
+
+    for (let f = 0; f < cfg.frames; f++) {
+      const canvas = document.createElement('canvas');
+      canvas.width = TILE_SIZE;
+      canvas.height = TILE_SIZE;
+      const ctx = canvas.getContext('2d');
+
+      const sx = (cfg.colStart + f) * TILE_SIZE;
+      const sy = cfg.row * TILE_SIZE;
+      ctx.drawImage(img, sx, sy, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
+
+      // Xóa nền trắng (R>240, G>240, B>240 -> alpha = 0)
+      const imgData = ctx.getImageData(0, 0, TILE_SIZE, TILE_SIZE);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240) {
+          d[i + 3] = 0;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      bugTextures[key].push(texture);
+    }
+  }
+}
+loadBugSpriteTextures();
+
+// ==========================================
+// HỆ THỐNG TỐC ĐỘ BẮN & QUA CỬA
+// ==========================================
+let playerKillsForFireRate = 0;
+let fireRatePercent = 20; // Bắt đầu ở 20%
+const baseFireInterval = 0.10; // Khoảng thời gian giữa 2 phát đạn ở 100%
+
+function getCurrentFireInterval() {
+  return baseFireInterval / (fireRatePercent / 100);
+}
+
+function registerPlayerKillForFireRate() {
+  playerKillsForFireRate += 1;
+  const bonusSteps = Math.floor(playerKillsForFireRate / 10);
+  fireRatePercent = Math.min(100, 20 + bonusSteps * 5);
+  updateFireRateHud();
+
+  if (fireRatePercent >= 100) {
+    endGame(true); // Đạt 100% -> Qua cửa chiến thắng!
+  }
+}
+
+// Bổ sung thêm dòng hiển thị Tốc độ bắn & Đã hạ trong HUD nếu có
+function updateFireRateHud() {
+  const frEl = document.querySelector("#fire-rate");
+  if (frEl) frEl.textContent = `${fireRatePercent}%`;
+}
 
 const material = (color, options = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.78, ...options });
 
@@ -358,20 +442,39 @@ function spawnAircraft(type, x, z, path) {
   return enemy;
 }
 
-function spawnBomb(enemy) {
-  const group = new THREE.Group();
-  const casing = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.16, 0.48, 8),
-    material("#33312b", { metalness: 0.45, roughness: 0.5 }),
-  );
-  group.add(casing);
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.22, 8), material("#b24f32", { emissive: "#512013" }));
-  tip.position.y = -0.31;
-  group.add(tip);
-  group.position.copy(enemy.group.position);
-  group.position.y -= 0.55;
-  scene.add(group);
-  bombs.push({ group, velocity: new THREE.Vector3(0, -1, -enemy.speed) });
+// Thay thế Bom bằng Côn trùng nhảy dù
+function spawnBugFromAircraft(enemy) {
+  const keys = BUG_KEYS;
+  const randomKey = keys[Math.floor(Math.random() * keys.length)];
+  const config = BUG_TYPES[randomKey];
+
+  const planePos = enemy.group.position;
+  const spriteMat = new THREE.SpriteMaterial({
+    map: bugTextures[randomKey] ? bugTextures[randomKey][0] : null,
+    transparent: true,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(1.4, 1.4, 1);
+  sprite.position.copy(planePos);
+  sprite.position.y -= 0.6;
+  scene.add(sprite);
+
+  const bugObj = {
+    mesh: sprite,
+    typeKey: randomKey,
+    config,
+    hp: config.hp,
+    state: 'PARACHUTE', // 'PARACHUTE' | 'CRAWLING' | 'DEAD'
+    velocity: new THREE.Vector3(0, -3.2, -enemy.speed * 0.6),
+    x: planePos.x,
+    y: planePos.y - 0.6,
+    z: planePos.z,
+    animTimer: 0,
+    frameIndex: 0,
+    alive: true
+  };
+  bugs.push(bugObj);
 }
 
 function startGame() {
@@ -379,6 +482,8 @@ function startGame() {
   score = 0;
   kills = 0;
   gateHealth = maxGateHealth;
+  playerKillsForFireRate = 0;
+  fireRatePercent = 20;
   wave = 1;
   spawnTimer = 2.8;
   fireCooldown = 0;
@@ -392,27 +497,31 @@ function startGame() {
   gameOverOverlay.classList.add("hidden");
   statusLabel.textContent = "PHÒNG KHÔNG";
   updateHud();
+  updateFireRateHud();
   spawnAircraft(Math.floor(Math.random() * 2), -3.6, 48, 0);
   spawnAircraft(Math.floor(Math.random() * 2), 3.6, 57, 2);
   unlockAudio();
 }
 
 function clearGameObjects() {
-  for (const collection of [enemies, bullets, bombs, particles]) {
+  for (const collection of [enemies, bullets, bugs, particles]) {
     for (const item of collection) scene.remove(item.group ?? item.mesh);
     collection.length = 0;
   }
 }
 
-function endGame() {
+function endGame(isVictory = false) {
   gameState = "over";
   document.querySelector("#final-score").textContent = String(score).padStart(4, "0");
-  if (gateHealth <= 0) {
+  if (isVictory) {
+    document.querySelector("#result-title").innerHTML = "Chiến thắng!<br /><em>Đã đạt 100% tốc độ.</em>";
+    document.querySelector("#result-copy").textContent = "Bạn đã tiêu diệt đủ lượng côn trùng và qua cửa thành công!";
+  } else if (gateHealth <= 0) {
     document.querySelector("#result-title").innerHTML = "Cổng thành<br /><em>đã thất thủ.</em>";
-    document.querySelector("#result-copy").textContent = "Máy bay địch đã phá vỡ phòng tuyến bằng bom.";
+    document.querySelector("#result-copy").textContent = "Côn trùng địch đã phá vỡ phòng tuyến thành công.";
   } else {
     document.querySelector("#result-title").innerHTML = "Phòng tuyến<br /><em>đã trụ vững.</em>";
-    document.querySelector("#result-copy").textContent = "Bạn đã chặn đứng đợt không kích.";
+    document.querySelector("#result-copy").textContent = "Bạn đã chặn đứng đợt tấn công.";
   }
   gameOverOverlay.classList.remove("hidden");
   statusLabel.textContent = "KẾT THÚC";
@@ -422,7 +531,7 @@ function updateHud() {
   scoreLabel.textContent = String(score).padStart(4, "0");
   killsLabel.textContent = String(kills);
   gateFill.style.width = `${Math.max(0, (gateHealth / maxGateHealth) * 100)}%`;
-  enemyCountLabel.textContent = `${enemies.filter((enemy) => enemy.alive).length} MỤC TIÊU`;
+  enemyCountLabel.textContent = `${enemies.filter((e) => e.alive).length + bugs.filter((b) => b.alive).length} MỤC TIÊU`;
 }
 
 function ensureAudio() {
@@ -467,7 +576,7 @@ function playHitSound() {
 
 function shoot() {
   if (gameState !== "playing" || fireCooldown > 0) return;
-  fireCooldown = 0.1;
+  fireCooldown = getCurrentFireInterval(); // Sử dụng tốc độ bắn theo % hiện tại
   playShootSound();
   const barrel = barrels[nextBarrel];
   nextBarrel = (nextBarrel + 1) % barrels.length;
@@ -550,6 +659,8 @@ function updateBullets(delta) {
     bullet.previous.copy(bullet.group.position);
     bullet.group.position.addScaledVector(bullet.velocity, delta);
     let hit = false;
+
+    // 1. Kiểm tra trúng máy bay trên không
     for (const enemy of enemies) {
       if (!enemy.alive) continue;
       const target = enemy.group.position.clone();
@@ -565,6 +676,28 @@ function updateBullets(delta) {
         }
         hit = true;
         break;
+      }
+    }
+
+    // 2. Kiểm tra trúng côn trùng (cả đang nhảy dù lẫn đang bò)
+    if (!hit) {
+      for (const bug of bugs) {
+        if (!bug.alive) continue;
+        const target = bug.mesh.position.clone();
+        if (pointSegmentDistance(target, bullet.previous, bullet.group.position) < 0.9) {
+          bug.hp -= 1;
+          playHitSound();
+          createBurst(bug.mesh.position, "#9cf273");
+          if (bug.hp <= 0) {
+            bug.alive = false;
+            scene.remove(bug.mesh);
+            score += bug.config.score;
+            kills += 1;
+            registerPlayerKillForFireRate(); // Cộng tiến độ tốc độ bắn!
+          }
+          hit = true;
+          break;
+        }
       }
     }
 
@@ -589,9 +722,11 @@ function updateEnemies(delta) {
     }
     enemy.group.position.y = aircraftAltitude + Math.sin(enemy.age * 1.6 + enemy.seed) * 0.3;
     enemy.group.rotation.z = enemy.path === 1 ? Math.sign(-enemy.startX) * 0.08 : Math.sin(enemy.age * 1.5) * 0.035;
+    
+    // Thả côn trùng thay cho bom
     enemy.bombTimer -= delta;
     if (enemy.bombTimer <= 0) {
-      spawnBomb(enemy);
+      spawnBugFromAircraft(enemy);
       enemy.bombTimer = 2.4 + Math.random() * 1.8;
     }
     if (enemy.group.position.z < -22) {
@@ -609,22 +744,71 @@ function updateEnemies(delta) {
   }
 }
 
-function updateBombs(delta) {
-  for (let i = bombs.length - 1; i >= 0; i -= 1) {
-    const bomb = bombs[i];
-    bomb.velocity.y -= 9.8 * delta;
-    bomb.group.position.addScaledVector(bomb.velocity, delta);
-    bomb.group.rotation.z += delta * 1.8;
-    if (bomb.group.position.y > 0) continue;
+// Cập nhật logic côn trùng nhảy dù và bò vào thành
+function updateBugs(delta) {
+  const gatePos = new THREE.Vector3(0, 0, -19); // Vị trí cổng thành
 
-    const impact = bomb.group.position.clone();
-    impact.y = 0.15;
-    createBurst(impact, "#ff8c43");
-    if (Math.abs(impact.x) < 5.5 && impact.z > -25 && impact.z < -8) {
-      gateHealth = Math.max(0, gateHealth - 1);
+  for (let i = bugs.length - 1; i >= 0; i -= 1) {
+    const bug = bugs[i];
+    if (!bug.alive) continue;
+
+    // Animation chuyển frame sprite
+    bug.animTimer += delta;
+    if (bug.animTimer >= 0.12) {
+      bug.animTimer = 0;
+      bug.frameIndex = (bug.frameIndex + 1) % bug.config.frames;
+      const textures = bugTextures[bug.typeKey];
+      if (textures && textures[bug.frameIndex]) {
+        bug.mesh.material.map = textures[bug.frameIndex];
+      }
     }
-    scene.remove(bomb.group);
-    bombs.splice(i, 1);
+
+    if (bug.state === 'PARACHUTE') {
+      // Rơi từ trên trời xuống
+      bug.y -= 3.5 * delta;
+      bug.x += Math.sin(performance.now() * 0.003 + bug.z) * 0.5 * delta;
+      bug.mesh.position.set(bug.x, bug.y, bug.z);
+
+      // Chạm đất (y <= 0)
+      if (bug.y <= 0) {
+        bug.y = 0;
+        const distToGate = Math.hypot(bug.x - gatePos.x, bug.z - gatePos.z);
+
+        // Khoảng cách > 80 đơn vị so với tâm (ở đây quy đổi tọa độ game tương ứng vùng an toàn)
+        // Nếu rẽ nhánh đúng yêu cầu: Rơi trong vòng 80 đơn vị -> tự tiêu diệt khi tiếp đất; ngoài 80 -> bò vào thành
+        // (Bán kính bản đồ từ 0 đến cổng -20 là khoảng 20 đơn vị, ta áp dụng ngưỡng 80 đơn vị như yêu cầu của bạn)
+        if (distToGate <= 80) {
+          // Tiếp đất trong vòng 80 đơn vị -> Hệ thống tự động tiêu diệt ngay!
+          bug.alive = false;
+          scene.remove(bug.mesh);
+          createBurst(bug.mesh.position, "#ffae42");
+        } else {
+          // Bò vào thành
+          bug.state = 'CRAWLING';
+        }
+      }
+    } else if (bug.state === 'CRAWLING') {
+      // Tiến về phía cổng thành
+      const dx = gatePos.x - bug.x;
+      const dz = gatePos.z - bug.z;
+      const dist = Math.hypot(dx, dz);
+
+      if (dist <= 1.2) {
+        // Côn trùng bò tới được cổng thành -> Trừ máu cổng thành
+        bug.alive = false;
+        scene.remove(bug.mesh);
+        createBurst(bug.mesh.position, "#ff4242");
+        gateHealth = Math.max(0, gateHealth - 1);
+      } else {
+        bug.x += (dx / dist) * bug.config.speed * delta;
+        bug.z += (dz / dist) * bug.config.speed * delta;
+        bug.mesh.position.set(bug.x, 0.35, bug.z);
+      }
+    }
+
+    if (!bug.alive) {
+      bugs.splice(i, 1);
+    }
   }
 }
 
@@ -665,11 +849,11 @@ function animate() {
     fireCooldown = Math.max(0, fireCooldown - delta);
     if (fireHeld && fireCooldown <= 0) shoot();
     updateEnemies(delta);
+    updateBugs(delta);
     updateBullets(delta);
-    updateBombs(delta);
     updateParticles(delta);
     updateHud();
-    if (gateHealth <= 0) endGame();
+    if (gateHealth <= 0) endGame(false);
   } else {
     updateParticles(delta);
   }
@@ -802,24 +986,4 @@ window.addEventListener("pointermove", onPointerMove);
 window.addEventListener("pointerup", onPointerUp);
 window.addEventListener("keydown", (event) => {
   if (event.code === "Space") {
-    event.preventDefault();
-    if (event.repeat) return;
-    fireHeld = true;
-    shoot();
-  }
-  if (event.code === "ArrowLeft" || event.code === "KeyA") aim.targetYaw += 0.045;
-  if (event.code === "ArrowRight" || event.code === "KeyD") aim.targetYaw -= 0.045;
-  if (event.code === "ArrowUp" || event.code === "KeyW") aim.targetPitch = Math.min(0.65, aim.targetPitch + 0.035);
-  if (event.code === "ArrowDown" || event.code === "KeyS") aim.targetPitch = Math.max(-0.82, aim.targetPitch - 0.035);
-});
-window.addEventListener("keyup", (event) => {
-  if (event.code === "Space") fireHeld = false;
-});
-window.addEventListener("blur", () => {
-  fireHeld = false;
-});
-
-createScenery();
-createMachineGun();
-resize();
-animate();
+    event
